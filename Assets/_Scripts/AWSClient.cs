@@ -45,12 +45,19 @@ public struct DescribeStreamResponse{
 }
 public delegate void HandleDescribeStreamResponse(DescribeStreamResponse response);
 
+public struct ReadStreamResponse{
+	public List<Amazon.Kinesis.Model.Record> Records;
+}
+public delegate void HandleReadStreamResponse(ReadStreamResponse response);
+
+
 public class AWSClient : MonoBehaviour
 {
 	private string IdentityPoolId = "us-west-2:13e0e993-0cc5-48c9-b4c3-4430cadad5f0";
 	public Amazon.RegionEndpoint RegionEndpoint = RegionEndpoint.USWest2;
 
 	void Start()
+
 	{
 		UnityInitializer.AttachToGameObject(this.gameObject);
 	}
@@ -190,6 +197,87 @@ public class AWSClient : MonoBehaviour
 			}
 		}
 		);
+	}
+
+	# endregion
+
+	# region ReadStream
+	/// <summary>
+	/// A coroutine which accepts a delegate function and calls it with new records as they arrive
+	/// </summary>
+	public void ReadStream(string StreamName, HandleReadStreamResponse cb)
+	{
+		Client.DescribeStreamAsync(new DescribeStreamRequest()
+		{
+			StreamName = StreamName
+		},
+		(responseObject) =>
+		{
+			if (responseObject.Exception == null)
+			{
+				List<Shard> shards = responseObject.Response.StreamDescription.Shards;
+				string shardId = shards[0].ShardId;
+				ReadShard(StreamName, shardId, cb);
+			}
+			else
+			{
+				Debug.LogError(responseObject.Exception);
+				cb(new ReadStreamResponse());
+			}
+		}
+		);
+	}
+
+	public void ReadShard(string StreamName, string shardId, HandleReadStreamResponse cb)
+	{
+		Client.GetShardIteratorAsync(new GetShardIteratorRequest()
+			{
+				StreamName = StreamName,
+				ShardId = shardId,
+				ShardIteratorType = ShardIteratorType.LATEST
+			},
+			(responseObject)=>{
+				if (responseObject.Exception == null)
+				{
+					string nextShardIterator = responseObject.Response.ShardIterator;
+					while(true) {
+						// recordsResponse
+						Client.GetRecordsAsync(new GetRecordsRequest()
+						{
+							ShardIterator=nextShardIterator,
+							Limit=123
+						},
+						(getRecordsResponseObject)=>{
+							// TODO: Handle errors
+							if (getRecordsResponseObject.Exception == null)
+							{
+								List<Record> records = getRecordsResponseObject.Response.Records;
+
+								cb(new ReadStreamResponse(){
+									Records=records
+								});
+
+								nextShardIterator = getRecordsResponseObject.Response.NextShardIterator;
+
+								if (records.Count == 0){
+									System.Threading.Thread.Sleep(1000);
+								}
+							}
+							else
+							{
+								Debug.LogError(getRecordsResponseObject.Exception);
+								cb(new ReadStreamResponse());
+							}
+						}
+						);
+					}
+				}
+				else {
+					Debug.LogError(responseObject.Exception);
+					cb(new ReadStreamResponse());
+				}
+			}
+		);	
 	}
 
 	# endregion
