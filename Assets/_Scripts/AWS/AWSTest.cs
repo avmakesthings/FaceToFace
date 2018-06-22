@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+using System.Text;
+
 public class AWSTest : MonoBehaviour {
 
 	public GameObject AWSClientObject;
@@ -16,14 +18,15 @@ public class AWSTest : MonoBehaviour {
 		yield return new WaitForSeconds(1);
 		// Test POC AWS client
 		AWSClient awsClient = AWSClientObject.GetComponent<AWSClient>();
+		string streamName = "AmazonRekognitionStreamOut";
 
-		awsClient.ListStreams((ListStreamsResponse r)=>{
-			foreach(string streamName in r.StreamNames){
-				Debug.Log(streamName);
+		awsClient.ReadStream(streamName, (response)=>{
+			List<Amazon.Kinesis.Model.Record> records = response.Records;
+			foreach(Amazon.Kinesis.Model.Record awsRecord in records){
+				string recordString = Encoding.ASCII.GetString(awsRecord.Data.ToArray());
+				RekogRecord record = RekogRecord.CreateFromJSON(recordString);
+				Debug.Log(record);
 			}
-			Debug.Log("This prints last.");
 		});
-
-		Debug.Log("You would think this would print last, but you'd be wrong.");
 	}
 }

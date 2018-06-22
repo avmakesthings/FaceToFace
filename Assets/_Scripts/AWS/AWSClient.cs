@@ -22,6 +22,8 @@ using Amazon;
 using System.Text;
 using Amazon.Kinesis.Model;
 using System.IO;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 
 public struct PutRecordResponse{
@@ -217,7 +219,26 @@ public class AWSClient : MonoBehaviour
 			{
 				List<Shard> shards = responseObject.Response.StreamDescription.Shards;
 				string shardId = shards[0].ShardId;
-				ReadShard(StreamName, shardId, cb);
+				
+				Client.GetShardIteratorAsync(new GetShardIteratorRequest()
+					{
+						StreamName = StreamName,
+						ShardId = shardId,
+						ShardIteratorType = ShardIteratorType.LATEST
+					},
+					(iteratorResponseObject)=>{
+						if (responseObject.Exception == null)
+						{
+							string nextShardIterator = iteratorResponseObject.Response.ShardIterator;
+							StartCoroutine(ReadShard(nextShardIterator, cb));
+						}
+						else {
+							Debug.LogError(iteratorResponseObject.Exception);
+							cb(new ReadStreamResponse());
+						}
+					}
+				);
+				
 			}
 			else
 			{
@@ -227,57 +248,44 @@ public class AWSClient : MonoBehaviour
 		}
 		);
 	}
+	
 
-	public void ReadShard(string StreamName, string shardId, HandleReadStreamResponse cb)
+	IEnumerator ReadShard(string nextShardIterator, HandleReadStreamResponse cb)
 	{
-		Client.GetShardIteratorAsync(new GetShardIteratorRequest()
+		while(true){
+
+			Client.GetRecordsAsync(new GetRecordsRequest()
 			{
-				StreamName = StreamName,
-				ShardId = shardId,
-				ShardIteratorType = ShardIteratorType.LATEST
+				ShardIterator=nextShardIterator,
+				Limit=123
 			},
-			(responseObject)=>{
-				if (responseObject.Exception == null)
+			(getRecordsResponseObject)=>{
+				if (getRecordsResponseObject.Exception == null)
 				{
-					string nextShardIterator = responseObject.Response.ShardIterator;
-					while(true) {
-						// recordsResponse
-						Client.GetRecordsAsync(new GetRecordsRequest()
-						{
-							ShardIterator=nextShardIterator,
-							Limit=123
-						},
-						(getRecordsResponseObject)=>{
-							// TODO: Handle errors
-							if (getRecordsResponseObject.Exception == null)
-							{
-								List<Record> records = getRecordsResponseObject.Response.Records;
+					List<Record> records = getRecordsResponseObject.Response.Records;
 
-								cb(new ReadStreamResponse(){
-									Records=records
-								});
+					cb(new ReadStreamResponse(){
+						Records=records
+					});
 
-								nextShardIterator = getRecordsResponseObject.Response.NextShardIterator;
-
-								if (records.Count == 0){
-									System.Threading.Thread.Sleep(1000);
-								}
-							}
-							else
-							{
-								Debug.LogError(getRecordsResponseObject.Exception);
-								cb(new ReadStreamResponse());
-							}
-						}
-						);
-					}
+					nextShardIterator = getRecordsResponseObject.Response.NextShardIterator;
 				}
-				else {
-					Debug.LogError(responseObject.Exception);
+				else
+				{
+					Debug.LogError(getRecordsResponseObject.Exception);
 					cb(new ReadStreamResponse());
 				}
 			}
-		);	
+			);
+
+		// TODO: Make the duration of 'waitForSeconds'
+		// contingent on response in getRecords
+		// if (records.Count == 0){
+		// 	System.Threading.Thread.Sleep(1000);
+		// }
+		yield return new WaitForSeconds(1);
+		}
+
 	}
 
 	# endregion
